@@ -98,12 +98,15 @@ export default function OTPScreen() {
         if (isRegistration === 'true' && role) {
           // New user registration
           const roles = role === 'WORKER' ? ['WORKER', 'CUSTOMER'] : ['CUSTOMER'];
+          const primaryRole = role as 'WORKER' | 'CUSTOMER';
+          
           await login({
             id: 'user-' + Date.now(),
             phone: `+91${phone}`,
             name: name || 'User',
             roles: roles,
-            activeRole: role as 'WORKER' | 'CUSTOMER',
+            primaryRole: primaryRole,
+            activeRole: primaryRole,
             is_active: true,
           });
           
@@ -119,6 +122,7 @@ export default function OTPScreen() {
             phone: `+91${phone}`,
             name: 'Demo User',
             roles: ['CUSTOMER', 'WORKER'], // Demo user has both roles
+            primaryRole: 'CUSTOMER', // Default to CUSTOMER for demo
             activeRole: 'CUSTOMER',
             is_active: true,
           });

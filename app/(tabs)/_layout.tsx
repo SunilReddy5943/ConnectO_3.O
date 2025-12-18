@@ -61,16 +61,6 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="earnings"
-        options={{
-          title: 'Earnings',
-          href: isWorkerMode ? '/(tabs)/earnings' : null,
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="analytics" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
         name="messages"
         options={{
           title: 'Messages',
@@ -86,6 +76,12 @@ export default function TabLayout() {
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="person" size={size} color={color} />
           ),
+        }}
+      />
+      <Tabs.Screen
+        name="earnings"
+        options={{
+          href: null, // Hidden from navigation
         }}
       />
     </Tabs>

@@ -114,6 +114,7 @@ export default function WorkerRegisterScreen() {
         phone: '+91' + phone,
         name: name,
         roles: ['WORKER', 'CUSTOMER'], // Worker can do everything customer can do
+        primaryRole: 'WORKER', // Worker's primary role is WORKER
         activeRole: 'WORKER',
         is_active: true,
       });

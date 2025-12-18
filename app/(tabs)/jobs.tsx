@@ -478,30 +478,96 @@ export default function JobsScreen() {
     );
   };
 
-  const renderEmpty = () => (
-    <View style={styles.emptyContainer}>
-      <Ionicons 
-        name={isWorkerMode ? 'hammer-outline' : 'briefcase-outline'} 
-        size={64} 
-        color={COLORS.textMuted} 
-      />
-      <Text style={styles.emptyTitle}>No {isWorkerMode ? 'works' : 'jobs'} found</Text>
-      <Text style={styles.emptySubtitle}>
-        {activeTab === 'my' || activeTab === 'all'
-          ? isWorkerMode 
-            ? "No work requests available at the moment"
-            : "You haven't posted any jobs yet"
-          : `No ${activeTab} ${isWorkerMode ? 'works' : 'jobs'} at the moment`}
-      </Text>
-      {(activeTab === 'my' || (isWorkerMode && activeTab === 'all')) && (
-        <TouchableOpacity style={styles.emptyButton} onPress={handleCreateJob}>
-          <Text style={styles.emptyButtonText}>
-            {isWorkerMode ? 'Post Your First Work' : 'Post Your First Job'}
+  const renderEmpty = () => {
+    // Worker mode empty states
+    if (isWorkerMode) {
+      if (activeTab === 'new') {
+        return (
+          <View style={styles.emptyContainer}>
+            <Ionicons name="mail-open-outline" size={64} color={COLORS.textMuted} />
+            <Text style={styles.emptyTitle}>No New Requests</Text>
+            <Text style={styles.emptySubtitle}>
+              You don't have any new work requests at the moment.
+              Check back later or explore jobs near you.
+            </Text>
+            <TouchableOpacity style={styles.emptyButton} onPress={() => router.push('/(tabs)/search')}>
+              <Text style={styles.emptyButtonText}>Find Jobs Near You</Text>
+            </TouchableOpacity>
+          </View>
+        );
+      }
+      
+      if (activeTab === 'ongoing') {
+        return (
+          <View style={styles.emptyContainer}>
+            <Ionicons name="time-outline" size={64} color={COLORS.textMuted} />
+            <Text style={styles.emptyTitle}>No Ongoing Works</Text>
+            <Text style={styles.emptySubtitle}>
+              You don't have any works in progress.
+              Accept new requests to get started.
+            </Text>
+          </View>
+        );
+      }
+      
+      if (activeTab === 'completed') {
+        return (
+          <View style={styles.emptyContainer}>
+            <Ionicons name="checkmark-circle-outline" size={64} color={COLORS.textMuted} />
+            <Text style={styles.emptyTitle}>No Completed Works</Text>
+            <Text style={styles.emptySubtitle}>
+              Your completed works will appear here.
+              Complete ongoing works to build your reputation.
+            </Text>
+          </View>
+        );
+      }
+      
+      // All works empty
+      return (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="hammer-outline" size={64} color={COLORS.textMuted} />
+          <Text style={styles.emptyTitle}>No Works Available</Text>
+          <Text style={styles.emptySubtitle}>
+            You don't have any work requests yet.
+            Make sure you're available to receive new requests.
           </Text>
-        </TouchableOpacity>
-      )}
-    </View>
-  );
+          <TouchableOpacity style={styles.emptyButton} onPress={() => router.push('/(tabs)/search')}>
+            <Text style={styles.emptyButtonText}>Find Jobs Near You</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    
+    // Customer mode empty states
+    if (activeTab === 'my') {
+      return (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="briefcase-outline" size={64} color={COLORS.textMuted} />
+          <Text style={styles.emptyTitle}>No Posted Jobs</Text>
+          <Text style={styles.emptySubtitle}>
+            You haven't posted any jobs yet.
+            Post your first job to get started.
+          </Text>
+          <TouchableOpacity style={styles.emptyButton} onPress={handleCreateJob}>
+            <Text style={styles.emptyButtonText}>Post Your First Job</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    
+    // All jobs empty
+    return (
+      <View style={styles.emptyContainer}>
+        <Ionicons name="search-outline" size={64} color={COLORS.textMuted} />
+        <Text style={styles.emptyTitle}>No Jobs Found</Text>
+        <Text style={styles.emptySubtitle}>
+          No jobs available at the moment.
+          Try posting a job or check back later.
+        </Text>
+      </View>
+    );
+  };
 
   const filteredJobs = activeTab === 'my' ? [] : jobs;
 

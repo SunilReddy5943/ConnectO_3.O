@@ -20,14 +20,17 @@ import SearchBar from '../components/SearchBar';
 import CategoryCard from '../components/CategoryCard';
 import WorkerCard from '../components/WorkerCard';
 import { FEATURED_WORKERS, DUMMY_WORKERS } from '../data/dummyWorkers';
+import { DUMMY_EARNINGS_OVERVIEW, DUMMY_PERFORMANCE_METRICS } from '../data/earningsData';
 
 const { width } = Dimensions.get('window');
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated, activeRole, isWorkerAvailable } = useAuth();
   const { unreadCount } = useApp();
   const [refreshing, setRefreshing] = useState(false);
+
+  const isWorkerMode = activeRole === 'WORKER';
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -53,8 +56,139 @@ export default function HomeScreen() {
     router.push('/job/create');
   };
 
+  const handleBecomeWorker = () => {
+    if (!isAuthenticated) {
+      router.push('/auth/login');
+      return;
+    }
+    router.push('/auth/worker-register');
+  };
+
+  const handleViewEarnings = () => {
+    router.push('/(tabs)/earnings');
+  };
+
   const nearbyWorkers = DUMMY_WORKERS.filter(w => w.city === 'Mumbai').slice(0, 10);
 
+  // Worker Mode Home
+  if (isWorkerMode) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <Header showLocation showProfile showNotifications />
+        
+        <ScrollView
+          style={styles.scrollView}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[COLORS.primary]} />
+          }
+        >
+          {/* Availability Banner */}
+          {!isWorkerAvailable && (
+            <View style={styles.busyBanner}>
+              <Ionicons name="moon" size={20} color={COLORS.warning} />
+              <View style={styles.busyBannerText}>
+                <Text style={styles.busyBannerTitle}>You're currently busy</Text>
+                <Text style={styles.busyBannerSubtitle}>Hidden from search. Turn available to receive job requests</Text>
+              </View>
+            </View>
+          )}
+
+          {/* Earnings Snapshot */}
+          <TouchableOpacity style={styles.earningsCard} onPress={handleViewEarnings} activeOpacity={0.8}>
+            <View style={styles.earningsHeader}>
+              <View>
+                <Text style={styles.earningsLabel}>Your Earnings</Text>
+                <Text style={styles.earningsValue}>₹{DUMMY_EARNINGS_OVERVIEW.thisMonth.toLocaleString()}</Text>
+                <Text style={styles.earningsSubtext}>This month</Text>
+              </View>
+              <TouchableOpacity style={styles.earningsIconButton} onPress={handleViewEarnings}>
+                <Ionicons name="analytics" size={32} color={COLORS.secondary} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.earningsStats}>
+              <View style={styles.earningsStatItem}>
+                <Text style={styles.earningsStatValue}>₹{DUMMY_EARNINGS_OVERVIEW.today.toLocaleString()}</Text>
+                <Text style={styles.earningsStatLabel}>Today</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.earningsStatItem}>
+                <Text style={styles.earningsStatValue}>{DUMMY_PERFORMANCE_METRICS.totalJobsCompleted}</Text>
+                <Text style={styles.earningsStatLabel}>Jobs Done</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.earningsStatItem}>
+                <Text style={styles.earningsStatValue}>{DUMMY_PERFORMANCE_METRICS.averageRating}⭐</Text>
+                <Text style={styles.earningsStatLabel}>Rating</Text>
+              </View>
+            </View>
+            <View style={styles.viewDetailsButton}>
+              <Text style={styles.viewDetailsText}>View Full Analytics</Text>
+              <Ionicons name="chevron-forward" size={16} color={COLORS.primary} />
+            </View>
+          </TouchableOpacity>
+
+          {/* New Work Requests */}
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>New Work Requests</Text>
+              <TouchableOpacity onPress={() => router.push('/(tabs)/jobs')}>
+                <Text style={styles.viewAllText}>View All</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.workRequestsCard}>
+              <View style={styles.workRequestIcon}>
+                <Ionicons name="hammer" size={28} color={COLORS.primary} />
+              </View>
+              <View style={styles.workRequestInfo}>
+                <Text style={styles.workRequestCount}>3 New Requests</Text>
+                <Text style={styles.workRequestSubtext}>Respond quickly to get hired</Text>
+              </View>
+              <TouchableOpacity style={styles.workRequestButton} onPress={() => router.push('/(tabs)/jobs')}>
+                <Text style={styles.workRequestButtonText}>View</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Performance Highlights */}
+          <View style={styles.performanceCard}>
+            <Text style={styles.performanceTitle}>Performance Highlights</Text>
+            <View style={styles.performanceMetrics}>
+              <View style={styles.performanceItem}>
+                <Text style={styles.performanceValue}>{DUMMY_PERFORMANCE_METRICS.completionRate}%</Text>
+                <Text style={styles.performanceLabel}>Completion Rate</Text>
+                <View style={styles.progressBar}>
+                  <View style={[styles.progressFill, { width: `${DUMMY_PERFORMANCE_METRICS.completionRate}%` }]} />
+                </View>
+              </View>
+              <View style={styles.performanceItem}>
+                <Text style={styles.performanceValue}>{DUMMY_PERFORMANCE_METRICS.acceptanceRate}%</Text>
+                <Text style={styles.performanceLabel}>Acceptance Rate</Text>
+                <View style={styles.progressBar}>
+                  <View style={[styles.progressFill, { width: `${DUMMY_PERFORMANCE_METRICS.acceptanceRate}%`, backgroundColor: COLORS.secondary }]} />
+                </View>
+              </View>
+            </View>
+          </View>
+
+          {/* Customer CTA */}
+          <View style={styles.crossRoleCard}>
+            <Ionicons name="search" size={40} color={COLORS.primary} />
+            <Text style={styles.crossRoleTitle}>Need help from another professional?</Text>
+            <Text style={styles.crossRoleSubtext}>Post a job to find skilled workers in your area</Text>
+            <TouchableOpacity style={styles.crossRoleButton} onPress={handlePostJob}>
+              <Text style={styles.crossRoleButtonText}>Post a Job</Text>
+              <Ionicons name="arrow-forward" size={16} color={COLORS.white} />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.bottomPadding} />
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
+  // Customer Mode Home
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <Header showLocation showProfile showNotifications />
@@ -162,6 +296,58 @@ export default function HomeScreen() {
           {nearbyWorkers.slice(0, 5).map((worker) => (
             <WorkerCard key={worker.id} worker={worker} />
           ))}
+        </View>
+
+        {/* Jobs Summary Card */}
+        <View style={styles.jobsSummaryCard}>
+          <View style={styles.jobsSummaryHeader}>
+            <Ionicons name="briefcase" size={24} color={COLORS.primary} />
+            <Text style={styles.jobsSummaryTitle}>Your Posted Jobs</Text>
+          </View>
+          <View style={styles.jobsSummaryStats}>
+            <View style={styles.jobsSummaryStatItem}>
+              <Text style={styles.jobsSummaryStatValue}>0</Text>
+              <Text style={styles.jobsSummaryStatLabel}>Active</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.jobsSummaryStatItem}>
+              <Text style={styles.jobsSummaryStatValue}>0</Text>
+              <Text style={styles.jobsSummaryStatLabel}>Completed</Text>
+            </View>
+          </View>
+          <TouchableOpacity style={styles.jobsSummaryCTA} onPress={handlePostJob}>
+            <Text style={styles.jobsSummaryCTAText}>Post a Job</Text>
+            <Ionicons name="add-circle" size={18} color={COLORS.white} />
+          </TouchableOpacity>
+        </View>
+
+        {/* Become Worker CTA */}
+        <View style={styles.becomeWorkerCard}>
+          <View style={styles.becomeWorkerIcon}>
+            <Ionicons name="construct" size={48} color={COLORS.secondary} />
+          </View>
+          <Text style={styles.becomeWorkerTitle}>Are you a skilled professional?</Text>
+          <Text style={styles.becomeWorkerSubtext}>
+            Offer your services and earn money on ConnectO
+          </Text>
+          <View style={styles.becomeWorkerBenefits}>
+            <View style={styles.benefit}>
+              <Ionicons name="checkmark-circle" size={18} color={COLORS.success} />
+              <Text style={styles.benefitText}>Flexible work hours</Text>
+            </View>
+            <View style={styles.benefit}>
+              <Ionicons name="checkmark-circle" size={18} color={COLORS.success} />
+              <Text style={styles.benefitText}>Earn on your terms</Text>
+            </View>
+            <View style={styles.benefit}>
+              <Ionicons name="checkmark-circle" size={18} color={COLORS.success} />
+              <Text style={styles.benefitText}>Grow your business</Text>
+            </View>
+          </View>
+          <TouchableOpacity style={styles.becomeWorkerButton} onPress={handleBecomeWorker}>
+            <Text style={styles.becomeWorkerButtonText}>Become a Worker</Text>
+            <Ionicons name="arrow-forward" size={18} color={COLORS.white} />
+          </TouchableOpacity>
         </View>
 
         {/* How It Works */}
@@ -378,5 +564,341 @@ const styles = StyleSheet.create({
   },
   bottomPadding: {
     height: SPACING['2xl'],
+  },
+  // Worker Mode Styles
+  busyBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.warning + '15',
+    marginHorizontal: SPACING.base,
+    marginTop: SPACING.md,
+    padding: SPACING.md,
+    borderRadius: BORDER_RADIUS.lg,
+    borderLeftWidth: 4,
+    borderLeftColor: COLORS.warning,
+  },
+  busyBannerText: {
+    flex: 1,
+    marginLeft: SPACING.md,
+  },
+  busyBannerTitle: {
+    fontSize: FONT_SIZES.base,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+  },
+  busyBannerSubtitle: {
+    fontSize: FONT_SIZES.sm,
+    color: COLORS.textSecondary,
+    marginTop: 2,
+  },
+  earningsCard: {
+    backgroundColor: COLORS.white,
+    marginHorizontal: SPACING.base,
+    marginTop: SPACING.md,
+    borderRadius: BORDER_RADIUS.xl,
+    padding: SPACING.lg,
+    ...SHADOWS.md,
+  },
+  earningsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: SPACING.md,
+  },
+  earningsLabel: {
+    fontSize: FONT_SIZES.sm,
+    color: COLORS.textMuted,
+    marginBottom: SPACING.xs,
+  },
+  earningsValue: {
+    fontSize: FONT_SIZES['3xl'],
+    fontWeight: '700',
+    color: COLORS.secondary,
+  },
+  earningsSubtext: {
+    fontSize: FONT_SIZES.sm,
+    color: COLORS.textSecondary,
+    marginTop: 4,
+  },
+  earningsIconButton: {
+    width: 56,
+    height: 56,
+    borderRadius: BORDER_RADIUS.lg,
+    backgroundColor: COLORS.secondary + '15',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  earningsStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingVertical: SPACING.md,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: COLORS.borderLight,
+  },
+  earningsStatItem: {
+    alignItems: 'center',
+  },
+  earningsStatValue: {
+    fontSize: FONT_SIZES.lg,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+  },
+  earningsStatLabel: {
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.textMuted,
+    marginTop: 4,
+  },
+  statDivider: {
+    width: 1,
+    backgroundColor: COLORS.borderLight,
+  },
+  viewDetailsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: SPACING.md,
+  },
+  viewDetailsText: {
+    fontSize: FONT_SIZES.sm,
+    fontWeight: '600',
+    color: COLORS.primary,
+    marginRight: SPACING.xs,
+  },
+  workRequestsCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.white,
+    marginHorizontal: SPACING.base,
+    padding: SPACING.base,
+    borderRadius: BORDER_RADIUS.xl,
+    ...SHADOWS.sm,
+  },
+  workRequestIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: BORDER_RADIUS.lg,
+    backgroundColor: COLORS.primary + '15',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  workRequestInfo: {
+    flex: 1,
+    marginLeft: SPACING.md,
+  },
+  workRequestCount: {
+    fontSize: FONT_SIZES.base,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+  },
+  workRequestSubtext: {
+    fontSize: FONT_SIZES.sm,
+    color: COLORS.textMuted,
+    marginTop: 2,
+  },
+  workRequestButton: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.sm,
+    borderRadius: BORDER_RADIUS.lg,
+  },
+  workRequestButtonText: {
+    fontSize: FONT_SIZES.sm,
+    fontWeight: '600',
+    color: COLORS.white,
+  },
+  performanceCard: {
+    backgroundColor: COLORS.white,
+    marginHorizontal: SPACING.base,
+    marginTop: SPACING.xl,
+    padding: SPACING.lg,
+    borderRadius: BORDER_RADIUS.xl,
+    ...SHADOWS.sm,
+  },
+  performanceTitle: {
+    fontSize: FONT_SIZES.lg,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+    marginBottom: SPACING.md,
+  },
+  performanceMetrics: {
+    gap: SPACING.md,
+  },
+  performanceItem: {},
+  performanceValue: {
+    fontSize: FONT_SIZES.xl,
+    fontWeight: '700',
+    color: COLORS.success,
+  },
+  performanceLabel: {
+    fontSize: FONT_SIZES.sm,
+    color: COLORS.textMuted,
+    marginTop: 4,
+  },
+  progressBar: {
+    height: 6,
+    backgroundColor: COLORS.borderLight,
+    borderRadius: 3,
+    marginTop: SPACING.xs,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: COLORS.success,
+    borderRadius: 3,
+  },
+  crossRoleCard: {
+    alignItems: 'center',
+    backgroundColor: COLORS.primary + '10',
+    marginHorizontal: SPACING.base,
+    marginTop: SPACING.xl,
+    padding: SPACING.xl,
+    borderRadius: BORDER_RADIUS.xl,
+    borderWidth: 2,
+    borderColor: COLORS.primary + '30',
+    borderStyle: 'dashed',
+  },
+  crossRoleTitle: {
+    fontSize: FONT_SIZES.lg,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+    textAlign: 'center',
+    marginTop: SPACING.md,
+  },
+  crossRoleSubtext: {
+    fontSize: FONT_SIZES.sm,
+    color: COLORS.textSecondary,
+    textAlign: 'center',
+    marginTop: SPACING.sm,
+  },
+  crossRoleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: SPACING.xl,
+    paddingVertical: SPACING.md,
+    borderRadius: BORDER_RADIUS.lg,
+    marginTop: SPACING.lg,
+  },
+  crossRoleButtonText: {
+    fontSize: FONT_SIZES.base,
+    fontWeight: '600',
+    color: COLORS.white,
+    marginRight: SPACING.sm,
+  },
+  // Customer Mode Styles
+  jobsSummaryCard: {
+    backgroundColor: COLORS.white,
+    marginHorizontal: SPACING.base,
+    marginTop: SPACING.xl,
+    padding: SPACING.lg,
+    borderRadius: BORDER_RADIUS.xl,
+    ...SHADOWS.md,
+  },
+  jobsSummaryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: SPACING.md,
+  },
+  jobsSummaryTitle: {
+    fontSize: FONT_SIZES.lg,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+    marginLeft: SPACING.sm,
+  },
+  jobsSummaryStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingVertical: SPACING.md,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: COLORS.borderLight,
+  },
+  jobsSummaryStatItem: {
+    alignItems: 'center',
+  },
+  jobsSummaryStatValue: {
+    fontSize: FONT_SIZES['2xl'],
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+  },
+  jobsSummaryStatLabel: {
+    fontSize: FONT_SIZES.sm,
+    color: COLORS.textMuted,
+    marginTop: 4,
+  },
+  jobsSummaryCTA: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.primary,
+    paddingVertical: SPACING.md,
+    borderRadius: BORDER_RADIUS.lg,
+    marginTop: SPACING.md,
+  },
+  jobsSummaryCTAText: {
+    fontSize: FONT_SIZES.base,
+    fontWeight: '600',
+    color: COLORS.white,
+    marginRight: SPACING.sm,
+  },
+  becomeWorkerCard: {
+    alignItems: 'center',
+    backgroundColor: COLORS.white,
+    marginHorizontal: SPACING.base,
+    marginTop: SPACING.xl,
+    padding: SPACING.xl,
+    borderRadius: BORDER_RADIUS.xl,
+    ...SHADOWS.md,
+  },
+  becomeWorkerIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: BORDER_RADIUS.xl,
+    backgroundColor: COLORS.secondary + '15',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  becomeWorkerTitle: {
+    fontSize: FONT_SIZES.xl,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+    textAlign: 'center',
+    marginTop: SPACING.lg,
+  },
+  becomeWorkerSubtext: {
+    fontSize: FONT_SIZES.base,
+    color: COLORS.textSecondary,
+    textAlign: 'center',
+    marginTop: SPACING.sm,
+  },
+  becomeWorkerBenefits: {
+    alignSelf: 'stretch',
+    marginTop: SPACING.lg,
+    gap: SPACING.sm,
+  },
+  benefit: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  benefitText: {
+    fontSize: FONT_SIZES.sm,
+    color: COLORS.textSecondary,
+    marginLeft: SPACING.sm,
+  },
+  becomeWorkerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.secondary,
+    paddingHorizontal: SPACING.xl,
+    paddingVertical: SPACING.md,
+    borderRadius: BORDER_RADIUS.lg,
+    marginTop: SPACING.lg,
+  },
+  becomeWorkerButtonText: {
+    fontSize: FONT_SIZES.base,
+    fontWeight: '600',
+    color: COLORS.white,
+    marginRight: SPACING.sm,
   },
 });

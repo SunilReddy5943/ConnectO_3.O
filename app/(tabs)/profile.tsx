@@ -65,6 +65,21 @@ export default function ProfileScreen() {
       onPress: () => router.push('/(tabs)/earnings'),
       color: COLORS.secondary,
     }] : []),
+    ...(!isWorkerMode ? [{
+      id: 'become-worker',
+      icon: 'construct' as keyof typeof Ionicons.glyphMap,
+      title: 'Become a Worker',
+      subtitle: 'Earn money by offering your services',
+      onPress: () => router.push('/auth/worker-register'),
+      color: COLORS.secondary,
+    }] : [{
+      id: 'post-job',
+      icon: 'add-circle' as keyof typeof Ionicons.glyphMap,
+      title: 'Post a Job',
+      subtitle: 'Hire another worker for your needs',
+      onPress: () => router.push('/job/create'),
+      color: COLORS.primary,
+    }]),
     {
       id: 'referral',
       icon: 'gift',
@@ -208,8 +223,14 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* Role Switcher */}
-        <RoleSwitcher showLabels={true} compact={false} />
+        {/* Role Switcher - Only show if user has both roles, hidden below settings */}
+        {user?.roles && user.roles.length > 1 && (
+          <View style={styles.roleSwitcherSection}>
+            <Text style={styles.roleSwitcherLabel}>Switch App Experience (Optional)</Text>
+            <Text style={styles.roleSwitcherSubtext}>Change how you use ConnectO</Text>
+            <RoleSwitcher showLabels={false} compact={false} />
+          </View>
+        )}
 
         {/* Stats */}
         <View style={styles.statsContainer}>
@@ -440,6 +461,25 @@ const styles = StyleSheet.create({
     color: COLORS.textMuted,
     textAlign: 'center',
     marginVertical: SPACING.xl,
+  },
+  roleSwitcherSection: {
+    backgroundColor: COLORS.white,
+    marginTop: SPACING.md,
+    marginHorizontal: SPACING.base,
+    padding: SPACING.base,
+    borderRadius: BORDER_RADIUS.xl,
+    ...SHADOWS.sm,
+  },
+  roleSwitcherLabel: {
+    fontSize: FONT_SIZES.base,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+    marginBottom: SPACING.xs,
+  },
+  roleSwitcherSubtext: {
+    fontSize: FONT_SIZES.sm,
+    color: COLORS.textMuted,
+    marginBottom: SPACING.md,
   },
   guestContainer: {
     alignItems: 'center',
