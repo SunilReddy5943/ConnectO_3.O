@@ -32,24 +32,30 @@ import { useAuth } from '../context/AuthContext';
 import { useLocation } from '../context/LocationContext';
 import { filterByRadius, sortByDistance } from '../lib/locationService';
 import { supabase } from '../lib/supabase';
+import { aiService } from '../lib/aiService';
+import { useAnalytics } from '../hooks/useAnalytics';
+import ErrorDisplay from '../components/ErrorDisplay';
 
 export default function SearchScreen() {
   const params = useLocalSearchParams<{ category?: string; voiceMode?: string; nearMe?: string; radius?: string }>();
   const { addRecentSearch, recentSearches } = useApp();
   const { activeRole } = useAuth();
   const { userLocation } = useLocation();
+  const { logSearch } = useAnalytics();
   const isWorkerMode = activeRole === 'WORKER';
   
   const [query, setQuery] = useState('');
   const [workerResults, setWorkerResults] = useState<DummyWorker[]>([]);
   const [jobResults, setJobResults] = useState<DummyJob[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [showVoiceModal, setShowVoiceModal] = useState(params.voiceMode === 'true');
   const [voiceText, setVoiceText] = useState('');
   const [isListening, setIsListening] = useState(false);
   const [aiProcessing, setAiProcessing] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list'); // Map/List toggle
+  const [aiSuggestionApplied, setAiSuggestionApplied] = useState(false);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   
   // Worker Search Filters (Customer Mode)
@@ -107,7 +113,15 @@ export default function SearchScreen() {
 
     if (query.trim()) {
       debounceTimer.current = setTimeout(() => {
-        handleSearch();
+        // Check if query is natural language (contains common words)
+        const naturalLanguageIndicators = ['need', 'want', 'looking', 'find', 'help', 'fix', 'repair', 'install', 'urgent', 'emergency'];
+        const isNaturalLanguage = naturalLanguageIndicators.some(word => query.toLowerCase().includes(word));
+        
+        if (isNaturalLanguage && !aiSuggestionApplied && !isWorkerMode) {
+          handleAISearchAssist(query);
+        } else {
+          handleSearch();
+        }
       }, 300); // 300ms debounce
     }
 
@@ -118,96 +132,152 @@ export default function SearchScreen() {
     };
   }, [query]);
 
+  const handleAISearchAssist = async (searchQuery: string) => {
+    setAiProcessing(true);
+    setAiSuggestionApplied(true);
+    setError(null);
+    
+    try {
+      const suggestion = await aiService.analyzeSearchQuery(searchQuery);
+      
+      // Auto-apply AI suggestions
+      if (suggestion.category && suggestion.category !== 'General') {
+        setSelectedCategory(suggestion.category);
+      }
+      
+      // Set urgency-based sorting
+      if (suggestion.urgency === 'high') {
+        // For urgent requests, prioritize nearest workers
+        setWorkerSortBy('nearest');
+      }
+      
+      // Use extracted intent as search query
+      const searchTerm = suggestion.extractedIntent || searchQuery;
+      
+      // Perform the search
+      handleSearch(searchTerm);
+    } catch (error) {
+      console.error('AI Search Assist error:', error);
+      setError('Failed to process your search request. Please try again.');
+      // Fallback to normal search
+      handleSearch(searchQuery);
+    } finally {
+      setAiProcessing(false);
+      // Reset flag after 3 seconds
+      setTimeout(() => setAiSuggestionApplied(false), 3000);
+    }
+  };
+
   const handleSearch = useCallback((searchQuery?: string) => {
     const q = searchQuery || query;
     setIsLoading(true);
+    setError(null);
+    
+    // Log search event
+    const filters = {
+      category: isWorkerMode ? jobCategory : selectedCategory,
+      sort: isWorkerMode ? jobSortBy : workerSortBy,
+      minPrice: isWorkerMode ? minBudget : minPrice,
+      maxPrice: isWorkerMode ? maxBudget : maxPrice,
+      minRating: minRating > 0 ? minRating : undefined,
+      verifiedOnly: verifiedOnly || undefined,
+      availableOnly: availableOnly || undefined,
+      urgentOnly: urgentOnly || undefined,
+    };
+    
+    logSearch(q, filters);
     
     setTimeout(() => {
-      if (isWorkerMode) {
-        // Worker Mode: Search Jobs
-        const filtered = searchJobs(q, {
-          category: jobCategory,
-          minBudget: minBudget > 0 ? minBudget : undefined,
-          maxBudget: maxBudget < 5000 ? maxBudget : undefined,
-          maxDistance: maxDistance < 50 ? maxDistance : undefined,
-          status: jobStatus as JobStatus | undefined,
-          postedWithinDays: postedWithinDays > 0 ? postedWithinDays : undefined,
-          urgentOnly,
-        });
+      try {
+        if (isWorkerMode) {
+          // Worker Mode: Search Jobs
+          const filtered = searchJobs(q, {
+            category: jobCategory,
+            minBudget: minBudget > 0 ? minBudget : undefined,
+            maxBudget: maxBudget < 5000 ? maxBudget : undefined,
+            maxDistance: maxDistance < 50 ? maxDistance : undefined,
+            status: jobStatus as JobStatus | undefined,
+            postedWithinDays: postedWithinDays > 0 ? postedWithinDays : undefined,
+            urgentOnly,
+          });
 
-        // Sort jobs
-        let sorted = [...filtered];
-        switch (jobSortBy) {
-          case 'newest':
-            sorted.sort((a, b) => b.posted_at.getTime() - a.posted_at.getTime());
-            break;
-          case 'highest_pay':
-            sorted.sort((a, b) => b.budget_max - a.budget_max);
-            break;
-          case 'nearest':
-            sorted.sort((a, b) => a.distance_km - b.distance_km);
-            break;
-          case 'urgent':
-            sorted.sort((a, b) => {
-              if (a.urgency === 'HIGH' && b.urgency !== 'HIGH') return -1;
-              if (a.urgency !== 'HIGH' && b.urgency === 'HIGH') return 1;
-              return b.posted_at.getTime() - a.posted_at.getTime();
-            });
-            break;
+          // Sort jobs
+          let sorted = [...filtered];
+          switch (jobSortBy) {
+            case 'newest':
+              sorted.sort((a, b) => b.posted_at.getTime() - a.posted_at.getTime());
+              break;
+            case 'highest_pay':
+              sorted.sort((a, b) => b.budget_max - a.budget_max);
+              break;
+            case 'nearest':
+              sorted.sort((a, b) => a.distance_km - b.distance_km);
+              break;
+            case 'urgent':
+              sorted.sort((a, b) => {
+                if (a.urgency === 'HIGH' && b.urgency !== 'HIGH') return -1;
+                if (a.urgency !== 'HIGH' && b.urgency === 'HIGH') return 1;
+                return b.posted_at.getTime() - a.posted_at.getTime();
+              });
+              break;
+          }
+
+          setJobResults(sorted);
+        } else {
+          // Customer Mode: Search Workers
+          let filtered = searchWorkers(q, {
+            category: selectedCategory,
+            city: selectedCity,
+            minExperience,
+            maxWage: maxPrice,
+            minRating,
+            verifiedOnly,
+          });
+
+          // Filter by availability (only show AVAILABLE workers)
+          filtered = filtered.filter(w => w.availability_status === 'AVAILABLE');
+
+          // Apply Near Me filter
+          if (isNearMeMode && userLocation) {
+            filtered = filterByRadius(filtered, userLocation, nearMeRadius);
+          }
+
+          // Sort workers
+          let sorted = [...filtered];
+          switch (workerSortBy) {
+            case 'best_match':
+              // Keep default relevance order from search
+              break;
+            case 'rating':
+              sorted.sort((a, b) => b.rating_average - a.rating_average);
+              break;
+            case 'experience':
+              sorted.sort((a, b) => b.years_of_experience - a.years_of_experience);
+              break;
+            case 'price_low':
+              sorted.sort((a, b) => a.daily_wage_min - b.daily_wage_min);
+              break;
+            case 'price_high':
+              sorted.sort((a, b) => b.daily_wage_max - a.daily_wage_max);
+              break;
+            case 'nearest':
+              if (userLocation) {
+                sorted = sortByDistance(sorted, userLocation);
+              }
+              break;
+          }
+
+          setWorkerResults(sorted);
         }
-
-        setJobResults(sorted);
-      } else {
-        // Customer Mode: Search Workers
-        let filtered = searchWorkers(q, {
-          category: selectedCategory,
-          city: selectedCity,
-          minExperience,
-          maxWage: maxPrice,
-          minRating,
-          verifiedOnly,
-        });
-
-        // Filter by availability (only show AVAILABLE workers)
-        filtered = filtered.filter(w => w.availability_status === 'AVAILABLE');
-
-        // Apply Near Me filter
-        if (isNearMeMode && userLocation) {
-          filtered = filterByRadius(filtered, userLocation, nearMeRadius);
+        
+        if (q.trim()) {
+          addRecentSearch(q.trim());
         }
-
-        // Sort workers
-        let sorted = [...filtered];
-        switch (workerSortBy) {
-          case 'best_match':
-            // Keep default relevance order from search
-            break;
-          case 'rating':
-            sorted.sort((a, b) => b.rating_average - a.rating_average);
-            break;
-          case 'experience':
-            sorted.sort((a, b) => b.years_of_experience - a.years_of_experience);
-            break;
-          case 'price_low':
-            sorted.sort((a, b) => a.daily_wage_min - b.daily_wage_min);
-            break;
-          case 'price_high':
-            sorted.sort((a, b) => b.daily_wage_max - a.daily_wage_max);
-            break;
-          case 'nearest':
-            if (userLocation) {
-              sorted = sortByDistance(sorted, userLocation);
-            }
-            break;
-        }
-
-        setWorkerResults(sorted);
-      }
-      
-      setIsLoading(false);
-      
-      if (q.trim()) {
-        addRecentSearch(q.trim());
+      } catch (err) {
+        console.error('Search error:', err);
+        setError('Failed to perform search. Please try again.');
+      } finally {
+        setIsLoading(false);
       }
     }, 100); // Reduced delay for better responsiveness
   }, [
@@ -335,7 +405,7 @@ export default function SearchScreen() {
         onSubmit={handleSearch}
         onVoicePress={() => setShowVoiceModal(true)}
         autoFocus={!params.category}
-        isLoading={isLoading}
+        isLoading={isLoading || aiProcessing}
       />
       
       <View style={styles.filterRow}>
@@ -391,6 +461,36 @@ export default function SearchScreen() {
           ))}
         </ScrollView>
       </View>
+
+      {/* Distance Filter Chips - Customer Mode Only */}
+      {!isWorkerMode && userLocation && (
+        <View style={styles.distanceFilterRow}>
+          <Ionicons name="location" size={16} color={COLORS.textMuted} />
+          <Text style={styles.distanceLabel}>Distance:</Text>
+          {[2, 5, 10, 50].map((radius) => (
+            <TouchableOpacity
+              key={radius}
+              style={[
+                styles.distanceChip,
+                maxDistance === radius && styles.distanceChipActive,
+              ]}
+              onPress={() => {
+                setMaxDistance(radius);
+                setTimeout(() => handleSearch(), 100);
+              }}
+            >
+              <Text
+                style={[
+                  styles.distanceChipText,
+                  maxDistance === radius && styles.distanceChipTextActive,
+                ]}
+              >
+                {radius === 50 ? 'All' : `${radius} km`}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
 
       <View style={styles.resultsInfo}>
         <Text style={styles.resultsCount}>
@@ -468,7 +568,7 @@ export default function SearchScreen() {
             )
           }
           ListHeaderComponent={renderHeader}
-          ListEmptyComponent={!isLoading ? renderEmpty : null}
+          ListEmptyComponent={!isLoading ? (error ? <ErrorDisplay message={error} onRetry={handleSearch} /> : renderEmpty) : null}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
         />
@@ -729,6 +829,39 @@ const styles = StyleSheet.create({
     marginLeft: SPACING.xs,
   },
   categoryChipTextActive: {
+    color: COLORS.white,
+  },
+  distanceFilterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: SPACING.base,
+    paddingVertical: SPACING.sm,
+    backgroundColor: COLORS.white,
+    gap: SPACING.sm,
+  },
+  distanceLabel: {
+    fontSize: FONT_SIZES.sm,
+    fontWeight: '600',
+    color: COLORS.textSecondary,
+  },
+  distanceChip: {
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.xs,
+    borderRadius: BORDER_RADIUS.full,
+    backgroundColor: COLORS.background,
+    borderWidth: 1,
+    borderColor: COLORS.borderLight,
+  },
+  distanceChipActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  distanceChipText: {
+    fontSize: FONT_SIZES.sm,
+    fontWeight: '600',
+    color: COLORS.textSecondary,
+  },
+  distanceChipTextActive: {
     color: COLORS.white,
   },
   resultsInfo: {

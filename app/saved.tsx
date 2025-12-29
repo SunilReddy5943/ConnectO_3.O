@@ -13,6 +13,7 @@ import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from './constants/theme';
 import { useApp } from './context/AppContext';
 import { DUMMY_WORKERS } from './data/dummyWorkers';
 import WorkerCard from './components/WorkerCard';
+import EmptyState from './components/EmptyState';
 
 export default function SavedWorkersScreen() {
   const router = useRouter();
@@ -25,19 +26,13 @@ export default function SavedWorkersScreen() {
   };
 
   const renderEmpty = () => (
-    <View style={styles.emptyContainer}>
-      <Ionicons name="heart-outline" size={64} color={COLORS.textMuted} />
-      <Text style={styles.emptyTitle}>No saved workers</Text>
-      <Text style={styles.emptySubtitle}>
-        Save workers you like to easily find them later
-      </Text>
-      <TouchableOpacity
-        style={styles.browseButton}
-        onPress={() => router.push('/(tabs)/search')}
-      >
-        <Text style={styles.browseButtonText}>Browse Workers</Text>
-      </TouchableOpacity>
-    </View>
+    <EmptyState 
+      type="saved" 
+      title="No Saved Workers"
+      message="Save your favorite workers for quick access later. Tap the heart icon on any worker profile."
+      actionText="Browse Workers"
+      onAction={() => router.push('/(tabs)/search')}
+    />
   );
 
   return (

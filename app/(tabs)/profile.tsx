@@ -15,7 +15,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS, SHADOWS } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { useApp } from '../context/AppContext';
+import { useAdmin } from '../context/AdminContext';
 import RoleSwitcher from '../components/RoleSwitcher';
+import { APP_VERSION } from '../config/featureFlags';
 
 interface MenuItem {
   id: string;
@@ -32,6 +34,7 @@ export default function ProfileScreen() {
   const router = useRouter();
   const { user, isAuthenticated, logout, activeRole, hasRole } = useAuth();
   const { savedWorkers, unreadCount } = useApp();
+  const { isAdmin, getUnreviewedReportsCount } = useAdmin();
 
   const isWorkerMode = activeRole === 'WORKER';
   
@@ -51,7 +54,7 @@ export default function ProfileScreen() {
         }),
         Animated.timing(fadeAnim, {
           toValue: 1,
-          duration: 500,
+          duration: 250, // Limit to <300ms for performance
           useNativeDriver: true,
         }),
       ]).start();
@@ -81,6 +84,17 @@ export default function ProfileScreen() {
   };
 
   const menuItems: MenuItem[] = [
+    // Admin Panel - Only for admins
+    ...(isAdmin ? [{
+      id: 'admin',
+      icon: 'shield-checkmark' as keyof typeof Ionicons.glyphMap,
+      title: 'Admin Panel',
+      subtitle: `${getUnreviewedReportsCount()} reports pending`,
+      onPress: () => router.push('/admin' as any),
+      color: COLORS.error,
+      showBadge: getUnreviewedReportsCount() > 0,
+      badgeCount: getUnreviewedReportsCount(),
+    }] : []),
     ...(isWorkerMode ? [{
       id: 'earnings',
       icon: 'analytics' as keyof typeof Ionicons.glyphMap,
@@ -90,14 +104,6 @@ export default function ProfileScreen() {
       color: COLORS.secondary,
     }] : []),
     // Become a Worker removed - now shown as prominent banner
-    ...(isWorkerMode ? [{
-      id: 'post-job',
-      icon: 'add-circle' as keyof typeof Ionicons.glyphMap,
-      title: 'Post a Job',
-      subtitle: 'Hire another worker for your needs',
-      onPress: () => router.push('/job/create'),
-      color: COLORS.primary,
-    }] : []),
     {
       id: 'saved',
       icon: 'heart',
@@ -114,29 +120,16 @@ export default function ProfileScreen() {
       badgeCount: unreadCount,
     },
     {
-      id: 'my-jobs',
-      icon: 'briefcase',
-      title: 'My Jobs',
-      subtitle: 'View and manage your job posts',
-      onPress: () => router.push('/(tabs)/jobs'),
-    },
-    {
       id: 'settings',
       icon: 'settings',
       title: 'Settings',
       onPress: () => {},
     },
     {
-      id: 'help',
-      icon: 'help-circle',
-      title: 'Help & Support',
-      onPress: () => {},
-    },
-    {
       id: 'about',
       icon: 'information-circle',
-      title: 'About ConnectO',
-      onPress: () => {},
+      title: 'About & Support',
+      onPress: () => router.push('/about'),
     },
   ];
 
@@ -236,8 +229,10 @@ export default function ProfileScreen() {
         {/* Role Switcher - Only show if user has both roles, hidden below settings */}
         {user?.roles && user.roles.length > 1 && (
           <View style={styles.roleSwitcherSection}>
-            <Text style={styles.roleSwitcherLabel}>Switch App Experience (Optional)</Text>
-            <Text style={styles.roleSwitcherSubtext}>Change how you use ConnectO</Text>
+            <Text style={styles.roleSwitcherLabel}>Switch App Experience</Text>
+            <Text style={styles.roleSwitcherSubtext}>
+              You have {user.roles.length} roles. The app will remember your last choice.
+            </Text>
             <RoleSwitcher showLabels={false} compact={false} />
           </View>
         )}
@@ -326,7 +321,7 @@ export default function ProfileScreen() {
         </TouchableOpacity>
 
         {/* App Version */}
-        <Text style={styles.versionText}>ConnectO v1.0.0</Text>
+        <Text style={styles.versionText}>ConnectO v{APP_VERSION.VERSION} ({APP_VERSION.ENVIRONMENT})</Text>
       </ScrollView>
     </SafeAreaView>
   );

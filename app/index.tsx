@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -11,21 +11,44 @@ import {
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS, HERO_IMAGE } from './constants/theme';
 import { useAuth } from './context/AuthContext';
 import Button from './components/ui/Button';
 
 const { width, height } = Dimensions.get('window');
+const ONBOARDING_KEY = '@connecto_onboarding_completed';
 
 export default function WelcomeScreen() {
   const router = useRouter();
   const { isAuthenticated, isLoading, user } = useAuth();
+  const [checkingOnboarding, setCheckingOnboarding] = useState(true);
 
   useEffect(() => {
-    if (!isLoading && isAuthenticated) {
+    checkOnboarding();
+  }, []);
+
+  const checkOnboarding = async () => {
+    try {
+      const hasCompletedOnboarding = await AsyncStorage.getItem(ONBOARDING_KEY);
+      
+      if (!hasCompletedOnboarding) {
+        // First time user - show onboarding
+        router.replace('/onboarding');
+      } else {
+        setCheckingOnboarding(false);
+      }
+    } catch (error) {
+      console.error('Error checking onboarding:', error);
+      setCheckingOnboarding(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isLoading && !checkingOnboarding && isAuthenticated) {
       router.replace('/(tabs)');
     }
-  }, [isAuthenticated, isLoading]);
+  }, [isAuthenticated, isLoading, checkingOnboarding]);
 
   const handleGetStarted = () => {
     router.push('/auth/intent-selection');
@@ -35,7 +58,7 @@ export default function WelcomeScreen() {
     router.push('/(tabs)');
   };
 
-  if (isLoading) {
+  if (isLoading || checkingOnboarding) {
     return (
       <View style={styles.loadingContainer}>
         <View style={styles.logoContainer}>

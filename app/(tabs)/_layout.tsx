@@ -45,18 +45,15 @@ export default function TabLayout() {
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="search" size={size} color={color} />
           ),
+          href: isWorkerMode ? null : undefined, // Hide Search tab for workers
         }}
       />
       <Tabs.Screen
-        name="jobs"
+        name="activity"
         options={{
-          title: isWorkerMode ? 'Works' : 'Jobs',
+          title: 'My Activity',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons 
-              name={isWorkerMode ? 'hammer' : 'briefcase'} 
-              size={size} 
-              color={color} 
-            />
+            <Ionicons name="list" size={size} color={color} />
           ),
         }}
       />
@@ -82,6 +79,12 @@ export default function TabLayout() {
         name="earnings"
         options={{
           href: null, // Hidden from navigation
+        }}
+      />
+      <Tabs.Screen
+        name="jobs"
+        options={{
+          href: null, // Hidden - replaced by activity
         }}
       />
     </Tabs>

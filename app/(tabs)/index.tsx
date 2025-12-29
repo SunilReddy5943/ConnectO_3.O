@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -16,11 +16,14 @@ import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS, SHADOWS, CATEGORIES, HERO_I
 import { useAuth } from '../context/AuthContext';
 import { useApp } from '../context/AppContext';
 import { useLocation } from '../context/LocationContext';
+import { useDeal } from '../context/DealContext';
 import Header from '../components/Header';
 import SearchBar from '../components/SearchBar';
 import CategoryCard from '../components/CategoryCard';
 import WorkerCard from '../components/WorkerCard';
 import FloatingAIButton from '../components/FloatingAIButton';
+import LiveStatusCard from '../components/LiveStatusCard';
+import AnalyticsSummaryCard from '../components/AnalyticsSummaryCard';
 import { FEATURED_WORKERS, DUMMY_WORKERS } from '../data/dummyWorkers';
 import { DUMMY_EARNINGS_OVERVIEW, DUMMY_PERFORMANCE_METRICS } from '../data/earningsData';
 import {
@@ -45,9 +48,18 @@ export default function HomeScreen() {
   const { user, isAuthenticated, activeRole, isWorkerAvailable } = useAuth();
   const { unreadCount } = useApp();
   const { userLocation, getNearbyRadius } = useLocation();
+  const { getActiveDealForWorker, getActiveDealForCustomer, updateWorkStatus } = useDeal();
   const [refreshing, setRefreshing] = useState(false);
 
   const isWorkerMode = activeRole === 'WORKER';
+
+  // Get active deal for live status card - memoized to prevent unnecessary re-renders
+  const activeDeal = useMemo(() => {
+    if (!user) return undefined;
+    return isWorkerMode
+      ? getActiveDealForWorker(user.id)
+      : getActiveDealForCustomer(user.id);
+  }, [user, isWorkerMode, getActiveDealForWorker, getActiveDealForCustomer]); // Recomputes when deals change
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -70,14 +82,6 @@ export default function HomeScreen() {
       pathname: '/(tabs)/search',
       params: { voiceMode: 'true' },
     });
-  };
-
-  const handlePostJob = () => {
-    if (!isAuthenticated) {
-      router.push('/auth/login');
-      return;
-    }
-    router.push('/job/create');
   };
 
   const handleBecomeWorker = () => {
@@ -110,6 +114,20 @@ export default function HomeScreen() {
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[COLORS.primary]} />
           }
         >
+          {/* Live Status Card */}
+          {activeDeal && (
+            <LiveStatusCard
+              deal={activeDeal}
+              isWorker={true}
+              onUpdateStatus={updateWorkStatus}
+            />
+          )}
+
+          {/* Analytics Summary Card */}
+          <View style={styles.section}>
+            <AnalyticsSummaryCard />
+          </View>
+
           {/* Availability Banner */}
           {!isWorkerAvailable && (
             <View style={styles.busyBanner}>
@@ -282,16 +300,7 @@ export default function HomeScreen() {
             </View>
           </View>
 
-          {/* Customer CTA */}
-          <View style={styles.crossRoleCard}>
-            <Ionicons name="search" size={40} color={COLORS.primary} />
-            <Text style={styles.crossRoleTitle}>Need help from another professional?</Text>
-            <Text style={styles.crossRoleSubtext}>Post a job to find skilled workers in your area</Text>
-            <TouchableOpacity style={styles.crossRoleButton} onPress={handlePostJob}>
-              <Text style={styles.crossRoleButtonText}>Post a Job</Text>
-              <Ionicons name="arrow-forward" size={16} color={COLORS.white} />
-            </TouchableOpacity>
-          </View>
+          {/* Customer CTA - Removed Post a Job */}
 
           <View style={styles.bottomPadding} />
         </ScrollView>
@@ -314,6 +323,14 @@ export default function HomeScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[COLORS.primary]} />
         }
       >
+        {/* Live Status Card */}
+        {activeDeal && (
+          <LiveStatusCard
+            deal={activeDeal}
+            isWorker={false}
+          />
+        )}
+
         {/* Hero Banner */}
         <View style={styles.heroBanner}>
           <Image source={{ uri: HERO_IMAGE }} style={styles.heroImage} />
@@ -335,12 +352,6 @@ export default function HomeScreen() {
 
         {/* Quick Actions */}
         <View style={styles.quickActions}>
-          <TouchableOpacity style={styles.quickAction} onPress={handlePostJob}>
-            <View style={[styles.quickActionIcon, { backgroundColor: COLORS.secondary + '15' }]}>
-              <Ionicons name="add-circle" size={24} color={COLORS.secondary} />
-            </View>
-            <Text style={styles.quickActionText}>Post a Job</Text>
-          </TouchableOpacity>
           <TouchableOpacity style={styles.quickAction} onPress={handleVoiceSearch}>
             <View style={[styles.quickActionIcon, { backgroundColor: COLORS.primary + '15' }]}>
               <Ionicons name="mic" size={24} color={COLORS.primary} />
@@ -352,6 +363,12 @@ export default function HomeScreen() {
               <Ionicons name="location" size={24} color={COLORS.success} />
             </View>
             <Text style={styles.quickActionText}>Near Me</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.quickAction} onPress={handleSearch}>
+            <View style={[styles.quickActionIcon, { backgroundColor: COLORS.info + '15' }]}>
+              <Ionicons name="search" size={24} color={COLORS.info} />
+            </View>
+            <Text style={styles.quickActionText}>Browse All</Text>
           </TouchableOpacity>
         </View>
 
@@ -412,28 +429,7 @@ export default function HomeScreen() {
           ))}
         </View>
 
-        {/* Jobs Summary Card */}
-        <View style={styles.jobsSummaryCard}>
-          <View style={styles.jobsSummaryHeader}>
-            <Ionicons name="briefcase" size={24} color={COLORS.primary} />
-            <Text style={styles.jobsSummaryTitle}>Your Posted Jobs</Text>
-          </View>
-          <View style={styles.jobsSummaryStats}>
-            <View style={styles.jobsSummaryStatItem}>
-              <Text style={styles.jobsSummaryStatValue}>0</Text>
-              <Text style={styles.jobsSummaryStatLabel}>Active</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.jobsSummaryStatItem}>
-              <Text style={styles.jobsSummaryStatValue}>0</Text>
-              <Text style={styles.jobsSummaryStatLabel}>Completed</Text>
-            </View>
-          </View>
-          <TouchableOpacity style={styles.jobsSummaryCTA} onPress={handlePostJob}>
-            <Text style={styles.jobsSummaryCTAText}>Post a Job</Text>
-            <Ionicons name="add-circle" size={18} color={COLORS.white} />
-          </TouchableOpacity>
-        </View>
+        {/* Jobs Summary Card - Removed */}
 
         {/* Become Worker CTA */}
         <View style={styles.becomeWorkerCard}>

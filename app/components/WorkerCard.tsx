@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, memo } from 'react';
 import { View, Text, Image, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -13,26 +13,35 @@ interface WorkerCardProps {
   variant?: 'default' | 'compact' | 'featured';
 }
 
-export default function WorkerCard({ worker, variant = 'default' }: WorkerCardProps) {
+function WorkerCard({ worker, variant = 'default' }: WorkerCardProps) {
   const router = useRouter();
   const { toggleSavedWorker, isWorkerSaved } = useApp();
   const saved = isWorkerSaved(worker.id);
 
-  const handlePress = () => {
+  const handlePress = useCallback(() => {
     router.push({
       pathname: '/worker/[id]',
       params: { id: worker.id },
     });
-  };
+  }, [worker.id]);
 
-  const handleSave = () => {
+  const handleSave = useCallback(() => {
     toggleSavedWorker(worker.id);
-  };
+  }, [worker.id, toggleSavedWorker]);
 
   if (variant === 'compact') {
     return (
       <TouchableOpacity style={styles.compactCard} onPress={handlePress} activeOpacity={0.8}>
-        <Image source={{ uri: worker.profile_photo_url }} style={styles.compactImage} />
+        {worker.profile_photo_url ? (
+          <Image 
+            source={{ uri: worker.profile_photo_url }} 
+            style={styles.compactImage}
+          />
+        ) : (
+          <View style={[styles.compactImage, styles.imageFallback]}>
+            <Ionicons name="person" size={24} color={COLORS.textMuted} />
+          </View>
+        )}
         <View style={styles.compactInfo}>
           <Text style={styles.compactName} numberOfLines={1}>{worker.name}</Text>
           <Text style={styles.compactCategory}>{worker.primary_category}</Text>
@@ -135,6 +144,15 @@ export default function WorkerCard({ worker, variant = 'default' }: WorkerCardPr
     </TouchableOpacity>
   );
 }
+
+// Memoize component to prevent unnecessary re-renders
+export default memo(WorkerCard, (prevProps, nextProps) => {
+  return (
+    prevProps.worker.id === nextProps.worker.id &&
+    prevProps.variant === nextProps.variant &&
+    prevProps.worker.distance === nextProps.worker.distance
+  );
+});
 
 const styles = StyleSheet.create({
   card: {
@@ -268,6 +286,10 @@ const styles = StyleSheet.create({
     height: 80,
     borderRadius: BORDER_RADIUS.md,
     backgroundColor: COLORS.borderLight,
+  },
+  imageFallback: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   compactInfo: {
     marginTop: SPACING.sm,

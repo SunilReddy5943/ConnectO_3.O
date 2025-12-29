@@ -13,7 +13,9 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS, SHADOWS, CATEGORIES } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
+import { useDeal } from '../context/DealContext';
 import FloatingAIButton from '../components/FloatingAIButton';
+import DealRequestCard from '../components/DealRequestCard';
 
 interface Job {
   id: string;
@@ -201,12 +203,16 @@ const DUMMY_WORKS: Work[] = [
 export default function JobsScreen() {
   const router = useRouter();
   const { isAuthenticated, user, activeRole } = useAuth();
+  const { getNewRequestsForWorker, updateDealRequestStatus } = useDeal();
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<'all' | 'my' | 'new' | 'ongoing' | 'completed' | 'cancelled'>('all');
   const [jobs, setJobs] = useState(DUMMY_JOBS);
   const [works, setWorks] = useState(DUMMY_WORKS);
 
   const isWorkerMode = activeRole === 'WORKER';
+
+  // Get deal requests for worker
+  const newDealRequests = isWorkerMode && user ? getNewRequestsForWorker(user.id) : [];
 
   // Filter works based on active tab for worker mode
   const filteredWorks = works.filter(work => {
@@ -236,6 +242,18 @@ export default function JobsScreen() {
       pathname: '/job/[id]',
       params: { id: jobId },
     });
+  };
+
+  const handleAcceptDealRequest = async (requestId: string) => {
+    await updateDealRequestStatus(requestId, 'ACCEPTED');
+  };
+
+  const handleWaitlistDealRequest = async (requestId: string) => {
+    await updateDealRequestStatus(requestId, 'WAITLISTED');
+  };
+
+  const handleRejectDealRequest = async (requestId: string) => {
+    await updateDealRequestStatus(requestId, 'REJECTED');
   };
 
   const getStatusColor = (status: Job['status'] | Work['status']) => {
@@ -572,22 +590,72 @@ export default function JobsScreen() {
 
   const filteredJobs = activeTab === 'my' ? [] : jobs;
 
+  // Show deal requests for workers in 'new' tab
+  const shouldShowDealRequests = isWorkerMode && activeTab === 'new' && newDealRequests.length > 0;
+  const shouldShowWorks = isWorkerMode && (activeTab !== 'new' || (activeTab === 'new' && newDealRequests.length === 0));
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       {renderHeader()}
       {renderTabs()}
       
-      <FlatList
-        data={isWorkerMode ? filteredWorks : filteredJobs}
-        keyExtractor={(item) => item.id}
-        renderItem={isWorkerMode ? renderWorkCard : renderJobCard}
-        ListEmptyComponent={renderEmpty}
-        contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[COLORS.primary]} />
-        }
-      />
+      {/* Deal Requests Section - Worker Mode, New Tab */}
+      {shouldShowDealRequests ? (
+        <ScrollView
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[COLORS.primary]} />
+          }
+        >
+          <View style={styles.dealRequestsHeader}>
+            <Text style={styles.dealRequestsTitle}>New Deal Requests</Text>
+            <Text style={styles.dealRequestsCount}>{newDealRequests.length} new</Text>
+          </View>
+          {newDealRequests.map((request) => (
+            <DealRequestCard
+              key={request.id}
+              request={request}
+              onAccept={handleAcceptDealRequest}
+              onWaitlist={handleWaitlistDealRequest}
+              onReject={handleRejectDealRequest}
+            />
+          ))}
+          {/* Also show regular work requests below */}
+          {filteredWorks.length > 0 && (
+            <>
+              <View style={styles.sectionDivider}>
+                <Text style={styles.sectionDividerText}>Other Work Requests</Text>
+              </View>
+              {filteredWorks.map((work) => renderWorkCard({ item: work }))}
+            </>
+          )}
+        </ScrollView>
+      ) : shouldShowWorks ? (
+        <FlatList
+          data={filteredWorks}
+          keyExtractor={(item) => item.id}
+          renderItem={renderWorkCard}
+          ListEmptyComponent={renderEmpty}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[COLORS.primary]} />
+          }
+        />
+      ) : (
+        <FlatList
+          data={filteredJobs}
+          keyExtractor={(item) => item.id}
+          renderItem={renderJobCard}
+          ListEmptyComponent={renderEmpty}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[COLORS.primary]} />
+          }
+        />
+      )}
 
       {/* AI Assistant FAB */}
       <FloatingAIButton />
@@ -808,5 +876,40 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.base,
     fontWeight: '600',
     color: COLORS.white,
+  },
+  dealRequestsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: SPACING.base,
+    paddingVertical: SPACING.md,
+    backgroundColor: COLORS.white,
+    marginBottom: SPACING.md,
+    borderRadius: BORDER_RADIUS.lg,
+  },
+  dealRequestsTitle: {
+    fontSize: FONT_SIZES.lg,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+  },
+  dealRequestsCount: {
+    fontSize: FONT_SIZES.sm,
+    fontWeight: '600',
+    color: COLORS.primary,
+    backgroundColor: COLORS.primary + '15',
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 4,
+    borderRadius: BORDER_RADIUS.full,
+  },
+  sectionDivider: {
+    paddingHorizontal: SPACING.base,
+    paddingVertical: SPACING.md,
+    marginTop: SPACING.lg,
+  },
+  sectionDividerText: {
+    fontSize: FONT_SIZES.sm,
+    fontWeight: '600',
+    color: COLORS.textMuted,
+    textTransform: 'uppercase',
   },
 });

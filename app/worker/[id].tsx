@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,9 @@ import {
   Dimensions,
   Modal,
   FlatList,
+  Alert,
+  Platform,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -17,13 +20,31 @@ import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS, SHADOWS, WORKER_IMAGES } fr
 import { DUMMY_WORKERS, DummyWorker } from '../data/dummyWorkers';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
+import { useDeal } from '../context/DealContext';
+import { useTrust } from '../context/TrustContext';
 import Button from '../components/ui/Button';
 import VerifiedBadge from '../components/VerifiedBadge';
 import TrustScore from '../components/TrustScore';
 import SafetyPromiseCard from '../components/SafetyPromiseCard';
 import ReviewCard, { Review } from '../components/ReviewCard';
+import StarRating from '../components/StarRating';
+import TrustBadges from '../components/TrustBadges';
+import VerificationLevelBadge from '../components/VerificationLevelBadge';
+import TrustMessage from '../components/TrustMessage';
+import DealRequestModal from '../components/DealRequestModal';
+import WorkerProfileActionBar from '../components/WorkerProfileActionBar';
+import NoResponseBanner from '../components/NoResponseBanner';
+import NotifyWorkerModal from '../components/NotifyWorkerModal';
 import { generateReviewsForWorker, calculateTrustScore, isWorkerVerified } from '../data/dummyReviews';
-
+// Conditionally import MiniMapView only on native platforms
+let MiniMapView: any = null;
+if (Platform.OS !== 'web') {
+  MiniMapView = require('../components/MiniMapView').default;
+}
+import { useLocation } from '../context/LocationContext';
+import ReportUserModal from '../components/ReportUserModal';
+import { useAnalytics } from '../hooks/useAnalytics';
+import ErrorDisplay from '../components/ErrorDisplay';
 const { width } = Dimensions.get('window');
 
 
@@ -31,18 +52,51 @@ const { width } = Dimensions.get('window');
 export default function WorkerDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, activeRole, user } = useAuth();
+  const { logDealSent, logUserReport } = useAnalytics();
   const { toggleSavedWorker, isWorkerSaved, addNotification } = useApp();
+  const { getWorkerRating, getWorkerReviews } = useDeal();
+  const { getWorkerVerification, getVerificationLevelBadge, getCustomerVerification } = useTrust();
+  const { userLocation } = useLocation();
   
   const [showContactModal, setShowContactModal] = useState(false);
   const [showGallery, setShowGallery] = useState(false);
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+  const [showDealRequestModal, setShowDealRequestModal] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [showNotifyModal, setShowNotifyModal] = useState(false);
+  const [showNoResponseBanner, setShowNoResponseBanner] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const isCustomerMode = activeRole === 'CUSTOMER' || !activeRole;
+  
+  const responseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const worker = useMemo(() => {
-    return DUMMY_WORKERS.find(w => w.id === id) || DUMMY_WORKERS[0];
+    try {
+      const foundWorker = DUMMY_WORKERS.find(w => w.id === id);
+      if (!foundWorker) {
+        setError('Worker not found');
+        return DUMMY_WORKERS[0]; // Fallback to first worker
+      }
+      return foundWorker;
+    } catch (err) {
+      setError('Failed to load worker details');
+      return DUMMY_WORKERS[0]; // Fallback to first worker
+    }
   }, [id]);
+  // Get real reviews from DealContext
+  const workerRating = useMemo(() => getWorkerRating(worker.id), [worker.id]);
+  const verifiedReviews = useMemo(() => getWorkerReviews(worker.id), [worker.id]);
 
-  // Generate trust data
+  // Get trust and verification info
+  const workerVerification = useMemo(() => getWorkerVerification(worker.id, worker), [worker.id, worker]);
+  const levelBadge = useMemo(() => getVerificationLevelBadge(workerVerification.level), [workerVerification.level]);
+  const customerVerification = useMemo(() => 
+    user ? getCustomerVerification(user.id) : { phoneVerified: false, completedDealsCount: 0 },
+    [user]
+  );
+
+  // Fallback to dummy reviews for display purposes
   const workerReviews = useMemo(() => generateReviewsForWorker(worker.id, worker.primary_category, worker.rating_count), [worker.id, worker.primary_category, worker.rating_count]);
   const trustScore = useMemo(() => calculateTrustScore(worker), [worker]);
   const isVerified = useMemo(() => isWorkerVerified(worker), [worker]);
@@ -89,16 +143,130 @@ export default function WorkerDetailScreen() {
     });
   };
 
-  const handleHire = () => {
+  const handleSendDealRequest = () => {
     if (!isAuthenticated) {
       router.push('/auth/login');
       return;
     }
-    router.push({
-      pathname: '/job/create',
-      params: { workerId: worker.id, category: worker.primary_category },
+    setShowDealRequestModal(true);
+  };
+
+  const handleDealRequestSuccess = () => {
+    // Log deal sent event
+    logDealSent(worker.id, '');
+    
+    addNotification({
+      id: Date.now().toString(),
+      title: 'Deal Request Sent',
+      body: `Your request has been sent to ${worker.name}`,
+      type: 'DEAL_REQUEST',
+      is_read: false,
+      created_at: new Date().toISOString(),
     });
   };
+
+  const handleReportUser = () => {
+    if (!isAuthenticated) {
+      router.push('/auth/login');
+      return;
+    }
+    setShowReportModal(true);
+  };
+
+  const handleReportSubmit = () => {
+    // Log user report event
+    logUserReport(worker.id, 'Reported from worker profile');
+    
+    // Report has been submitted, close modal
+    setShowReportModal(false);
+  };
+
+  // New handlers for customer-first UX
+  const startResponseTimer = () => {
+    // Clear any existing timer
+    if (responseTimerRef.current) {
+      clearTimeout(responseTimerRef.current);
+    }
+    
+    // Start 60-second timer
+    responseTimerRef.current = setTimeout(() => {
+      setShowNoResponseBanner(true);
+    }, 60000); // 60 seconds
+  };
+
+  const handleCallNow = () => {
+    if (!isAuthenticated) {
+      router.push('/auth/login');
+      return;
+    }
+    
+    // Attempt to call worker (placeholder - will use actual phone later)
+    Alert.alert(
+      'Call Worker',
+      'Call feature will be available soon. For now, use Chat to contact the worker.',
+      [
+        { text: 'OK', style: 'default' },
+        {
+          text: 'Open Chat',
+          onPress: handleStartChat,
+        },
+      ]
+    );
+    
+    // Start response timer
+    startResponseTimer();
+  };
+
+  const handleChat = () => {
+    if (!isAuthenticated) {
+      router.push('/auth/login');
+      return;
+    }
+    handleStartChat();
+    // Start response timer
+    startResponseTimer();
+  };
+
+  const handleNotify = () => {
+    setShowNoResponseBanner(false);
+    setShowNotifyModal(true);
+  };
+
+  const handleNotifySubmit = (data: { problem: string; location: string }) => {
+    // Create dummy notify record
+    console.log('Notify submitted:', {
+      workerId: worker.id,
+      workerName: worker.name,
+      ...data,
+      timestamp: new Date().toISOString(),
+    });
+
+    setShowNotifyModal(false);
+    
+    Alert.alert(
+      'Worker Notified',
+      "Notified worker. You'll get a response soon.",
+      [{ text: 'OK' }]
+    );
+    
+    addNotification({
+      id: Date.now().toString(),
+      title: 'Worker Notified',
+      body: `${worker.name} has been notified about your request`,
+      type: 'SYSTEM',
+      is_read: false,
+      created_at: new Date().toISOString(),
+    });
+  };
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (responseTimerRef.current) {
+        clearTimeout(responseTimerRef.current);
+      }
+    };
+  }, []);
 
   const renderStars = (rating: number) => {
     return (
@@ -134,31 +302,46 @@ export default function WorkerDetailScreen() {
   );
 
   return (
+    <>
     <SafeAreaView style={styles.container} edges={['top']}>
-      <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Header Image */}
-        <View style={styles.headerImage}>
-          <Image source={{ uri: worker.profile_photo_url }} style={styles.coverImage} />
-          <View style={styles.headerOverlay} />
-          <View style={styles.headerActions}>
-            <TouchableOpacity style={styles.headerButton} onPress={handleBack}>
-              <Ionicons name="arrow-back" size={24} color={COLORS.white} />
-            </TouchableOpacity>
-            <View style={styles.headerRight}>
-              <TouchableOpacity style={styles.headerButton} onPress={handleSave}>
-                <Ionicons
-                  name={saved ? 'heart' : 'heart-outline'}
-                  size={24}
-                  color={saved ? COLORS.error : COLORS.white}
-                />
+      {error ? (
+        <View style={styles.container}>
+          <ErrorDisplay 
+            message={error} 
+            onRetry={() => {
+              setError(null);
+              // Reload worker data
+              const foundWorker = DUMMY_WORKERS.find(w => w.id === id);
+              if (!foundWorker) {
+                setError('Worker not found');
+              }
+            }}
+          />
+        </View>
+      ) : (
+        <ScrollView showsVerticalScrollIndicator={false}>
+          {/* Header Image */}
+          <View style={styles.headerImage}>
+            <Image source={{ uri: worker.profile_photo_url }} style={styles.coverImage} />
+            <View style={styles.headerOverlay} />
+            <View style={styles.headerActions}>
+              <TouchableOpacity style={styles.headerButton} onPress={handleBack}>
+                <Ionicons name="arrow-back" size={24} color={COLORS.white} />
               </TouchableOpacity>
-              <TouchableOpacity style={styles.headerButton}>
-                <Ionicons name="share-outline" size={24} color={COLORS.white} />
-              </TouchableOpacity>
+              <View style={styles.headerRight}>
+                <TouchableOpacity style={styles.headerButton} onPress={handleSave}>
+                  <Ionicons
+                    name={saved ? 'heart' : 'heart-outline'}
+                    size={24}
+                    color={saved ? COLORS.error : COLORS.white}
+                  />
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.headerButton}>
+                  <Ionicons name="share-outline" size={24} color={COLORS.white} />
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
-        </View>
-
         {/* Profile Info */}
         <View style={styles.profileSection}>
           <View style={styles.profileHeader}>
@@ -184,8 +367,14 @@ export default function WorkerDetailScreen() {
               <View style={styles.statIcon}>
                 <Ionicons name="star" size={18} color={COLORS.star} />
               </View>
-              <Text style={styles.statValue}>{worker.rating_average.toFixed(1)}</Text>
-              <Text style={styles.statLabel}>({worker.rating_count} reviews)</Text>
+              <Text style={styles.statValue}>
+                {workerRating.totalReviews > 0 
+                  ? workerRating.averageRating.toFixed(1) 
+                  : worker.rating_average.toFixed(1)}
+              </Text>
+              <Text style={styles.statLabel}>
+                ({workerRating.totalReviews > 0 ? workerRating.totalReviews : worker.rating_count} reviews)
+              </Text>
             </View>
             <View style={styles.statDivider} />
             <View style={styles.statItem}>
@@ -203,6 +392,29 @@ export default function WorkerDetailScreen() {
               <Text style={styles.statValue}>₹{worker.daily_wage_min}</Text>
               <Text style={styles.statLabel}>/day</Text>
             </View>
+          </View>
+        </View>
+
+        {/* Verification Level & Trust Badges */}
+        <View style={styles.section}>
+          <View style={styles.verificationHeader}>
+            <Text style={styles.sectionTitle}>Trust & Verification</Text>
+            <VerificationLevelBadge
+              level={workerVerification.level}
+              label={levelBadge.label}
+              color={levelBadge.color}
+              icon={levelBadge.icon}
+              size="medium"
+            />
+          </View>
+          
+          <TrustMessage
+            message="All badges are earned through verified work and customer reviews"
+            type="shield"
+          />
+
+          <View style={styles.badgesContainer}>
+            <TrustBadges badges={workerVerification.badges} />
           </View>
         </View>
 
@@ -237,6 +449,26 @@ export default function WorkerDetailScreen() {
         <View style={styles.section}>
           <SafetyPromiseCard />
         </View>
+
+        {/* Secondary Action - Confirm Deal */}
+        {isCustomerMode && (
+          <View style={styles.section}>
+            <TouchableOpacity
+              style={styles.confirmDealButton}
+              onPress={handleSendDealRequest}
+              activeOpacity={0.9}
+            >
+              <View style={styles.confirmDealContent}>
+                <Ionicons name="document-text" size={22} color={COLORS.primary} />
+                <View style={styles.confirmDealText}>
+                  <Text style={styles.confirmDealTitle}>Need a formal deal?</Text>
+                  <Text style={styles.confirmDealSubtitle}>Send detailed job request with terms</Text>
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={COLORS.primary} />
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* About Section */}
         <View style={styles.section}>
@@ -285,6 +517,31 @@ export default function WorkerDetailScreen() {
           </View>
         </View>
 
+        {/* Service Area Map */}
+        {worker.location && Platform.OS !== 'web' && MiniMapView && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Service Area</Text>
+            <Text style={styles.serviceAreaText}>
+              Serves within {worker.travel_radius_km} km radius
+            </Text>
+            <View style={styles.mapContainer}>
+              <MiniMapView
+                location={worker.location}
+                title={`${worker.name}'s Service Area`}
+                showRadius
+                radiusKm={worker.travel_radius_km}
+                height={180}
+              />
+            </View>
+            <View style={styles.serviceAreaNote}>
+              <Ionicons name="information-circle" size={16} color={COLORS.info} />
+              <Text style={styles.serviceAreaNoteText}>
+                Approximate service area. Exact location shared after deal acceptance.
+              </Text>
+            </View>
+          </View>
+        )}
+
         {/* Portfolio Section */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
@@ -313,47 +570,103 @@ export default function WorkerDetailScreen() {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Customer Reviews</Text>
-            <Text style={styles.reviewCount}>{workerReviews.length} reviews</Text>
+            <Text style={styles.reviewCount}>
+              {verifiedReviews.length > 0 ? verifiedReviews.length : workerReviews.length} reviews
+            </Text>
           </View>
-          <Text style={styles.reviewSubtitle}>All reviews are from verified customers</Text>
-          {workerReviews.slice(0, 5).map((review) => (
-            <ReviewCard key={review.id} review={review} variant="full" />
-          ))}
-          {workerReviews.length > 5 && (
-            <TouchableOpacity style={styles.viewAllReviews}>
-              <Text style={styles.viewAllReviewsText}>View all {workerReviews.length} reviews</Text>
-              <Ionicons name="chevron-forward" size={18} color={COLORS.primary} />
-            </TouchableOpacity>
+          
+          {verifiedReviews.length > 0 ? (
+            <>
+              <View style={styles.verifiedBanner}>
+                <Ionicons name="checkmark-circle" size={16} color={COLORS.success} />
+                <Text style={styles.verifiedBannerText}>All reviews are from verified completed work</Text>
+              </View>
+              
+              {verifiedReviews.map(({ deal, review }) => (
+                <View key={deal.id} style={styles.verifiedReviewCard}>
+                  <View style={styles.reviewHeader}>
+                    <View style={styles.reviewerInfo}>
+                      <View style={styles.reviewerAvatar}>
+                        <Text style={styles.reviewerInitial}>{deal.customerName.charAt(0)}</Text>
+                      </View>
+                      <View>
+                        <Text style={styles.reviewerName}>{deal.customerName}</Text>
+                        <Text style={styles.reviewDate}>
+                          {new Date(review.createdAt).toLocaleDateString('en-IN', {
+                            day: 'numeric',
+                            month: 'short',
+                            year: 'numeric'
+                          })}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.verifiedWorkBadge}>
+                      <Ionicons name="checkmark-circle" size={14} color={COLORS.success} />
+                      <Text style={styles.verifiedWorkText}>Verified Work</Text>
+                    </View>
+                  </View>
+                  
+                  <View style={styles.reviewRating}>
+                    <StarRating rating={review.rating} readonly size={18} />
+                  </View>
+                  
+                  {review.comment && (
+                    <Text style={styles.reviewComment}>{review.comment}</Text>
+                  )}
+                  
+                  <View style={styles.workDetails}>
+                    <Text style={styles.workDetailsLabel}>Work:</Text>
+                    <Text style={styles.workDetailsText} numberOfLines={2}>{deal.problem}</Text>
+                  </View>
+                </View>
+              ))}
+            </>
+          ) : (
+            <>
+              <Text style={styles.reviewSubtitle}>All reviews are from verified customers</Text>
+              {workerReviews.slice(0, 5).map((review) => (
+                <ReviewCard key={review.id} review={review} variant="full" />
+              ))}
+              {workerReviews.length > 5 && (
+                <TouchableOpacity style={styles.viewAllReviews}>
+                  <Text style={styles.viewAllReviewsText}>View all {workerReviews.length} reviews</Text>
+                  <Ionicons name="chevron-forward" size={18} color={COLORS.primary} />
+                </TouchableOpacity>
+              )}
+            </>
           )}
         </View>
 
         <View style={styles.bottomPadding} />
       </ScrollView>
+      )}
 
-      {/* Bottom Action Bar */}
-      <View style={styles.bottomBar}>
-        <View style={styles.priceInfo}>
-          <Text style={styles.priceLabel}>Starting from</Text>
-          <Text style={styles.priceValue}>₹{worker.daily_wage_min}/day</Text>
-        </View>
-        <View style={styles.actionButtons}>
-          <TouchableOpacity style={styles.chatButton} onPress={handleContact}>
-            <Ionicons name="chatbubble-outline" size={20} color={COLORS.primary} />
-          </TouchableOpacity>
-          <Button title="Hire Now" onPress={handleHire} style={styles.hireButton} />
-        </View>
-      </View>
+      {/* Premium Action Bar */}
+      <WorkerProfileActionBar
+        price={worker.daily_wage_min}
+        priceLabel="Starting from"
+        onChatPress={handleChat}
+        onCallPress={handleCallNow}
+        isCustomerMode={isCustomerMode}
+      />
+      
+      {/* No Response Banner */}
+      <NoResponseBanner
+        visible={showNoResponseBanner}
+        onNotifyPress={handleNotify}
+      />
+    </SafeAreaView>
 
-      {/* Contact Modal */}
-      <Modal visible={showContactModal} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.contactModal}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Contact {worker.name}</Text>
-              <TouchableOpacity onPress={() => setShowContactModal(false)}>
-                <Ionicons name="close" size={24} color={COLORS.textSecondary} />
-              </TouchableOpacity>
-            </View>
+    {/* Contact Modal */}
+    <Modal visible={showContactModal} animationType="slide" transparent>
+      <View style={styles.modalOverlay}>
+        <View style={styles.contactModal}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Contact {worker.name}</Text>
+            <TouchableOpacity onPress={() => setShowContactModal(false)}>
+              <Ionicons name="close" size={24} color={COLORS.textSecondary} />
+            </TouchableOpacity>
+          </View>
             
             <View style={styles.workerPreview}>
               <Image source={{ uri: worker.profile_photo_url }} style={styles.modalWorkerImage} />
@@ -385,13 +698,70 @@ export default function WorkerDetailScreen() {
               <Ionicons name="chevron-forward" size={20} color={COLORS.textMuted} />
             </TouchableOpacity>
 
+            {/* Quick Notify Option */}
+            <TouchableOpacity 
+              style={styles.contactOption}
+              onPress={() => {
+                setShowContactModal(false);
+                // Open deal request modal with quick notify mode
+                handleSendDealRequest();
+              }}
+            >
+              <View style={[styles.contactIcon, { backgroundColor: COLORS.warning + '15' }]}>
+                <Ionicons name="notifications" size={24} color={COLORS.warning} />
+              </View>
+              <View style={styles.contactInfo}>
+                <Text style={styles.contactTitle}>Send Quick Request</Text>
+                <Text style={styles.contactSubtitle}>Notify worker with your job details</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={COLORS.textMuted} />
+            </TouchableOpacity>
+
             <Text style={styles.privacyNote}>
               Phone numbers are shared only after mutual agreement
             </Text>
+            
+            <TouchableOpacity 
+              style={styles.reportOption}
+              onPress={() => {
+                setShowContactModal(false);
+                handleReportUser();
+              }}
+            >
+              <Ionicons name="flag" size={20} color={COLORS.error} />
+              <Text style={styles.reportText}>Report this user</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+
+      {/* Deal Request Modal */}
+      <DealRequestModal
+        visible={showDealRequestModal}
+        worker={worker}
+        onClose={() => setShowDealRequestModal(false)}
+        onSuccess={handleDealRequestSuccess}
+      />
+      
+      {/* Report User Modal */}
+      <ReportUserModal
+        visible={showReportModal}
+        userId={worker.id}
+        userName={worker.name}
+        onClose={() => setShowReportModal(false)}
+        onReport={handleReportSubmit}
+      />
+      
+      {/* Notify Worker Modal */}
+      <NotifyWorkerModal
+        visible={showNotifyModal}
+        workerId={worker.id}
+        workerName={worker.name}
+        defaultLocation={userLocation?.city || ''}
+        onClose={() => setShowNotifyModal(false)}
+        onSubmit={handleNotifySubmit}
+      />
+    </>
   );
 }
 
@@ -622,6 +992,28 @@ const styles = StyleSheet.create({
     color: COLORS.textPrimary,
     marginTop: 2,
   },
+  serviceAreaText: {
+    fontSize: FONT_SIZES.sm,
+    color: COLORS.textSecondary,
+    marginBottom: SPACING.md,
+  },
+  mapContainer: {
+    marginBottom: SPACING.md,
+  },
+  serviceAreaNote: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: COLORS.info + '10',
+    padding: SPACING.sm,
+    borderRadius: BORDER_RADIUS.md,
+    gap: SPACING.xs,
+  },
+  serviceAreaNoteText: {
+    flex: 1,
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.info,
+    lineHeight: 18,
+  },
   portfolioItem: {
     marginRight: SPACING.sm,
   },
@@ -723,8 +1115,32 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: SPACING.sm,
   },
-  hireButton: {
-    paddingHorizontal: SPACING.xl,
+  dealButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    backgroundColor: COLORS.secondary,
+    borderRadius: BORDER_RADIUS.lg,
+    marginRight: SPACING.sm,
+    gap: SPACING.xs,
+  },
+  dealButtonWide: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
+    backgroundColor: COLORS.primary,
+    borderRadius: BORDER_RADIUS.lg,
+    gap: SPACING.xs,
+  },
+  dealButtonText: {
+    fontSize: FONT_SIZES.sm,
+    fontWeight: '600',
+    color: COLORS.white,
   },
   modalOverlay: {
     flex: 1,
@@ -803,5 +1219,116 @@ const styles = StyleSheet.create({
     color: COLORS.textMuted,
     textAlign: 'center',
     marginTop: SPACING.lg,
+  },
+  reportOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: SPACING.md,
+    marginTop: SPACING.md,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.borderLight,
+    gap: SPACING.xs,
+  },
+  reportText: {
+    fontSize: FONT_SIZES.sm,
+    fontWeight: '600',
+    color: COLORS.error,
+  },
+  verifiedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.success + '10',
+    padding: SPACING.md,
+    borderRadius: BORDER_RADIUS.md,
+    marginBottom: SPACING.md,
+    gap: SPACING.xs,
+  },
+  verifiedBannerText: {
+    fontSize: FONT_SIZES.sm,
+    fontWeight: '600',
+    color: COLORS.success,
+  },
+  verifiedReviewCard: {
+    backgroundColor: COLORS.white,
+    borderRadius: BORDER_RADIUS.lg,
+    padding: SPACING.md,
+    marginBottom: SPACING.md,
+    borderWidth: 1,
+    borderColor: COLORS.borderLight,
+    ...SHADOWS.sm,
+  },
+  verifiedWorkBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.success + '10',
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 4,
+    borderRadius: BORDER_RADIUS.sm,
+    gap: 4,
+  },
+  verifiedWorkText: {
+    fontSize: FONT_SIZES.xs,
+    fontWeight: '600',
+    color: COLORS.success,
+  },
+  reviewRating: {
+    marginVertical: SPACING.sm,
+  },
+  workDetails: {
+    flexDirection: 'row',
+    marginTop: SPACING.sm,
+    paddingTop: SPACING.sm,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.borderLight,
+  },
+  workDetailsLabel: {
+    fontSize: FONT_SIZES.xs,
+    fontWeight: '600',
+    color: COLORS.textMuted,
+    marginRight: SPACING.xs,
+  },
+  workDetailsText: {
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.textSecondary,
+    flex: 1,
+  },
+  verificationHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: SPACING.md,
+  },
+  badgesContainer: {
+    marginTop: SPACING.md,
+  },
+  confirmDealButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: COLORS.primary + '08',
+    borderWidth: 1.5,
+    borderColor: COLORS.primary + '30',
+    borderRadius: BORDER_RADIUS.lg,
+    padding: SPACING.md,
+  },
+  confirmDealContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: SPACING.sm,
+  },
+  confirmDealText: {
+    flex: 1,
+  },
+  confirmDealTitle: {
+    fontSize: FONT_SIZES.base,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+  },
+  confirmDealSubtitle: {
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.textMuted,
+    marginTop: 2,
   },
 });

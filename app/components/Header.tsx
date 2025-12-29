@@ -6,6 +6,7 @@ import { COLORS, SPACING, FONT_SIZES, SHADOWS } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { useApp } from '../context/AppContext';
 import { useLocation } from '../context/LocationContext';
+import { useNotification } from '../context/NotificationContext';
 import BusyModeToggle from './BusyModeToggle';
 import { DEFAULT_LOCATIONS } from '../lib/locationService';
 
@@ -32,11 +33,12 @@ export default function Header({
 }: HeaderProps) {
   const router = useRouter();
   const { user, activeRole } = useAuth();
-  const { unreadCount } = useApp();
+  const { getUnreadCount } = useNotification();
   const { userLocation, isLoading, requestPermission, setManualLocation } = useLocation();
   const [showLocationModal, setShowLocationModal] = useState(false);
 
   const isWorkerMode = activeRole === 'WORKER';
+  const unreadCount = user ? getUnreadCount(user.id) : 0;
 
   // Use location from context if not provided
   const displayLocation = location || (userLocation ? `${userLocation.city}, ${userLocation.country}` : 'Select Location');

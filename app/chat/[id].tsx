@@ -17,6 +17,8 @@ import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS, SHADOWS, WORKER_IMAGES } fr
 import { DUMMY_WORKERS } from '../data/dummyWorkers';
 import VerifiedBadge from '../components/VerifiedBadge';
 import { isWorkerVerified } from '../data/dummyReviews';
+import AIChatSuggestions from '../components/AIChatSuggestions';
+import { useAuth } from '../context/AuthContext';
 
 interface Message {
   id: string;
@@ -68,13 +70,18 @@ export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const flatListRef = useRef<FlatList>(null);
+  const { activeRole } = useAuth();
   
   const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [showAISuggestions, setShowAISuggestions] = useState(false);
 
   const worker = DUMMY_WORKERS.find(w => w.id === id) || DUMMY_WORKERS[0];
   const isVerified = isWorkerVerified(worker);
+  const isWorkerMode = activeRole === 'WORKER';
+  const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
+  const lastUserMessage = messages.filter(m => m.sender === 'user').slice(-1)[0];
 
   useEffect(() => {
     // Simulate worker typing indicator
@@ -109,6 +116,7 @@ export default function ChatScreen() {
 
     setMessages(prev => [...prev, newMessage]);
     setInputText('');
+    setShowAISuggestions(false);
 
     // Simulate message delivery
     setTimeout(() => {
@@ -132,6 +140,11 @@ export default function ChatScreen() {
         setMessages(prev => [...prev, response]);
       }, 2000);
     }, 1500);
+  };
+
+  const handleSelectAISuggestion = (text: string) => {
+    setInputText(text);
+    setShowAISuggestions(false);
   };
 
   const handleBack = () => {
@@ -227,6 +240,17 @@ export default function ChatScreen() {
             ) : null
           }
         />
+
+        {/* AI Chat Suggestions (Worker Mode Only) */}
+        {isWorkerMode && lastUserMessage && (
+          <View style={styles.aiSuggestionsContainer}>
+            <AIChatSuggestions
+              lastMessage={lastUserMessage.text}
+              conversationContext={`Customer asking about ${worker.name}'s work services`}
+              onSelectSuggestion={handleSelectAISuggestion}
+            />
+          </View>
+        )}
 
         {/* Input Bar */}
         <View style={styles.inputContainer}>
@@ -420,6 +444,10 @@ const styles = StyleSheet.create({
   },
   typingDot3: {
     opacity: 0.8,
+  },
+  aiSuggestionsContainer: {
+    paddingHorizontal: SPACING.base,
+    paddingVertical: SPACING.xs,
   },
   inputContainer: {
     flexDirection: 'row',
